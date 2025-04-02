@@ -25,4 +25,6 @@ git clone https://github.com/ThulsMind/BasicEnum
 	
 If you want to update the GTFO List before infiltration run this command 
 
-`curl -s https://gtfobins.github.io/ | grep -oP '(?<=/gtfobins/)[^/"]+' | sort -u > gtfobins.txt` 
+```
+curl -s https://gtfobins.github.io/ | grep -oP '(?<=/gtfobins/)[^/"]+' | sort -u > gtfobins.txt` 
+```
