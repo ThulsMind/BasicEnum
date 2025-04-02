@@ -5,6 +5,13 @@ This particular script currently runs through a basic enumeration of a linux sys
 
 This enumeration script will run through and quickly produce useful imformation about a target machine, then give you the option to quickly exfiltrate it back to your (the attacking) machine. 
 
+#### Installation
+*Install With Git Clone*
+```
+git clone https://github.com/ThulsMind/BasicEnum
+```
+*Copy or Download code*
+
 #### Key Features and flow
 1. Prompts if you want to ultimately save the outputs as a file
 2. Gathers basic system and user info 
@@ -17,6 +24,5 @@ This enumeration script will run through and quickly produce useful imformation 
 	Note: Currently the only exfiltration options are a SCP Push back to your local (attacker machine) or setting up a python server for you to do a wget request from. 
 	
 If you want to update the GTFO List before infiltration run this command 
-
 
 `curl -s https://gtfobins.github.io/ | grep -oP '(?<=/gtfobins/)[^/"]+' | sort -u > gtfobins.txt` 
