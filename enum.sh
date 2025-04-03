@@ -30,6 +30,7 @@ do_basic_enum() {
         read -rp "${CYAN}Do you want basic enumeration done (y/n)? If yes, enter your password when prompted: ${DEF}" answer1
         case "$answer1" in
             [Yy]*)
+                # Running sudo -l to see permissions of user
                 echo -e "\n${CYAN}========= Basic Enumeration ==========${DEF}\n"
                 echo -e "${WHITE}Running sudo -l${DEF}"
                 SUDO_OUTPUT=$(sudo -l 2>/dev/null)
@@ -38,7 +39,7 @@ do_basic_enum() {
                 if echo "$SUDO_OUTPUT" | grep -q "(ALL : ALL)"; then
                     echo -e "${GREEN}Full sudo access detected. Dumping /etc/passwd, /etc/shadow, sudoers, and root SSH keys...${DEF}"
                     sleep 2
-
+                    
                 [[ -n "$COLLECT_DIR" ]] && {
                     sudo cat /etc/passwd | tee "$COLLECT_DIR/passwd.txt" > /dev/null 
                     sudo cat /etc/shadow | tee "$COLLECT_DIR/shadow.txt" > /dev/null
